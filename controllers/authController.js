@@ -9,25 +9,34 @@ function sign(user) {
     process.env.JWT_SECRET,
     { expiresIn: "12h" }
   );
-}
+};
+
+exports.verifyToken = (req, res, next) => {
+  try {
+    if(req.user !== null) {
+      console.log(req.user)
+      return res.status(200).json({ isLogin: true, user: req.user });
+    }
+    return res.status(401).json({ isLogin: false, user: {} });
+  } catch (e) { next(e); }
+};
 
 exports.loginCustomer = async (req, res, next) => {
   try {
     const { name, pin } = req.body;
-    const rows = await withDb(conn => conn.query("SELECT * FROM customers WHERE name = ?", [name]).then(([r])=>r));
+    const rows = await withDb(conn => conn.query("SELECT * FROM customers WHERE name = ?", [name]).then(([r]) => r));
     const user = rows[0];
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
     const ok = await bcrypt.compare(pin, user.pin_hash);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
-    console.log(user);
-    res.json({ token: sign(user), user: { user_id: user.id, name: user.name, role: "CUSTOMER" } });
+    res.json({ token: sign(user), user: { id: user.id, name: user.name, role: "CUSTOMER" } });
   } catch (e) { next(e); }
 };
 
 exports.login = async (req, res, next) => {
   try {
     const { username, password } = req.body;
-    const rows = await withDb(conn => conn.query("SELECT * FROM staff WHERE username = ?", [username]).then(([r])=>r));
+    const rows = await withDb(conn => conn.query("SELECT * FROM staff WHERE username = ?", [username]).then(([r]) => r));
     const user = rows[0];
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
     const ok = await bcrypt.compare(password, user.password_hash);
@@ -72,7 +81,7 @@ exports.register = async (req, res, next) => {
 exports.changePassword = async (req, res, next) => {
   try {
     const { userId, oldPassword, newPassword } = req.body;
-    const rows = await withDb(conn => conn.query("SELECT * FROM staff WHERE id = ?", [userId]).then(([r])=>r));
+    const rows = await withDb(conn => conn.query("SELECT * FROM staff WHERE id = ?", [userId]).then(([r]) => r));
     const user = rows[0];
     if (!user) return res.status(404).json({ message: "User not found" });
     const ok = await bcrypt.compare(oldPassword, user.password_hash);

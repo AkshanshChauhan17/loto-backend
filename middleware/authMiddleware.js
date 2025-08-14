@@ -16,7 +16,7 @@ function auth(required = true) {
       if (required) return res.status(401).json({ message: "Invalid token" });
       req.user = null; next();
     }
-  }
+  };
 }
 
 function permit(...roles) {
