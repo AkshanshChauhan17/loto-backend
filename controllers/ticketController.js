@@ -39,7 +39,7 @@ exports.purchaseTicket = async (req, res, next) => {
       // ticket
       const [ins] = await conn.query(
         "INSERT INTO tickets (serial, customer_id, store_id, staff_id, game_id, draw_id, total_amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')",
-        [serial, customer_id, store_id || null, (req.user && req.user.id) || null, game_id, draw_id || null, total]
+        [serial, customer_id, store_id || null, req.user.id || null, game_id, draw_id || null, total]
       );
       const ticket_id = ins.insertId;
       // lines

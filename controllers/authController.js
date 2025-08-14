@@ -19,7 +19,8 @@ exports.loginCustomer = async (req, res, next) => {
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
     const ok = await bcrypt.compare(pin, user.pin_hash);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
-    res.json({ token: sign(user), user: { id: user.id, name: user.user, role: user.role } });
+    console.log(user);
+    res.json({ token: sign(user), user: { user_id: user.id, name: user.name, role: "CUSTOMER" } });
   } catch (e) { next(e); }
 };
 
