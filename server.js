@@ -32,6 +32,7 @@ app.use("/api/discounts", require("./routes/discounts"));
 app.use("/api/dashboard", require("./routes/dashboard"));
 app.use("/api/security", require("./routes/security"));
 app.use("/api/reports", require("./routes/reports"));
+app.use("/api/results", require("./routes/results"));
 
 // 404 + errors
 app.use(notFound);

@@ -4,7 +4,7 @@
   "description": "Express + MySQL API for Lotto Games 888",
   "main": "server.js",
   "scripts": {
-    "start": "nodemon node server.js",
+    "start": "node server.js",
     "dev": "nodemon server.js",
     "lint": "eslint ."
   },

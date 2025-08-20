@@ -7,19 +7,41 @@ function genSerial() {
 
 exports.listTickets = async (req, res, next) => {
   try {
-    const rows = await withDb(conn => conn.query(
-      "SELECT id, serial, customer_id, game_id, total_amount, status, purchase_time FROM tickets ORDER BY id DESC LIMIT 200"
-    ).then(([r])=>r));
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const status = req.query.status;
+
+    let query = `
+      SELECT id, serial, customer_id, game_id, total_amount, status, purchase_time 
+      FROM tickets
+    `;
+    let params = [];
+
+    if (status) {
+      query += " WHERE status = ?";
+      params.push(status);
+    }
+
+    query += " ORDER BY id DESC LIMIT ? OFFSET ?";
+    params.push(limit, offset);
+
+    const rows = await withDb(conn =>
+      conn.query(query, params).then(([r]) => r)
+    );
+
     res.json(rows);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 };
 
 exports.getTicket = async (req, res, next) => {
   try {
     const id = req.params.id;
-    const [t] = await withDb(conn => conn.query("SELECT * FROM tickets WHERE id = ?", [id]).then(([r])=>r));
+    const [t] = await withDb(conn => conn.query("SELECT * FROM tickets WHERE id = ?", [id]).then(([r]) => r));
     if (!t) return res.status(404).json({ message: "Not found" });
-    const lines = await withDb(conn => conn.query("SELECT * FROM ticket_lines WHERE ticket_id = ?", [id]).then(([r])=>r));
+    const lines = await withDb(conn => conn.query("SELECT * FROM ticket_lines WHERE ticket_id = ?", [id]).then(([r]) => r));
     res.json({ ...t, lines });
   } catch (e) { next(e); }
 };
