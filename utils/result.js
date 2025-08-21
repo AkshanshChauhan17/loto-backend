@@ -1,8 +1,4 @@
-// utils/result.js
-// Robust payout rules with strict numeric comparisons and normalization.
-
 function normalizeNumbers(input) {
-  // Accept: array of numbers/strings OR a single comma/space-separated string
   if (Array.isArray(input)) {
     return input
       .flatMap(x => String(x).split(/[,\s]+/))
@@ -20,119 +16,188 @@ function normalizeNumbers(input) {
   return [];
 }
 
-function countMatches(betNums, drawNums) {
-  const drawSet = new Set(drawNums);
-  let c = 0;
-  for (const n of betNums) if (drawSet.has(n)) c++;
-  return c;
+// helper: generate k-combinations
+function combinations(arr, k) {
+  if (k === 1) return arr.map(x => [x]);
+  let result = [];
+  arr.forEach((val, i) => {
+    const smaller = combinations(arr.slice(i + 1), k - 1);
+    smaller.forEach(c => result.push([val, ...c]));
+  });
+  return result;
+}
+
+// check full match of line against winning numbers
+function lineMatches(line, drawNums) {
+  const set = new Set(drawNums);
+  return line.every(n => set.has(n));
 }
 
 function calculatePayout(game_id, bet, draw) {
-  // Normalize inputs
   const drawNums = normalizeNumbers(draw.winningNumbers);
-  const betNums  = normalizeNumbers(bet.numbers);
+  const betNums = normalizeNumbers(bet.numbers);
   const bonusNum = draw.bonus != null ? Number(draw.bonus) : null;
 
-  // Guard: empty/invalid
   if (!drawNums.length || !betNums.length) return 0;
 
-  // Case-insensitive bet_type
   const betType = String(bet.bet_type || "").toUpperCase();
-
-  // game_id may be numeric (1..4) or a string ("pick2"/"pick3")
   const gid = isNaN(Number(game_id)) ? String(game_id).toLowerCase() : Number(game_id);
 
-  const matches = countMatches(betNums, drawNums);
+  const stake = Number(bet.stake || 0);
+  if (stake <= 0) return 0;
 
-  // Helper for bonus bet
-  const hasBonus = bonusNum != null && betNums.includes(bonusNum);
+  let payout = 0;
 
-  // For C1/C2/C3/C4 we expect the line to have exactly 1/2/3/4 numbers respectively.
-  // We'll require exact-length matches to avoid accidental wins if someone passed more numbers.
-  const requireExact = (need) => (betNums.length === need && matches === need);
-
+  // line expansion + payout multipliers per PDF
   switch (gid) {
-    /* ---------------------- PICK 2 ---------------------- */
-    case "pick2":
-    case 5: {
-      if (betType === "STRAIGHT") {
-        // exact order
-        if (betNums.length === 2 &&
-            betNums[0] === drawNums[0] &&
-            betNums[1] === drawNums[1]) {
-          return 50 * Number(bet.stake || 0);
-        }
-      } else if (betType === "MATCH_FIRST") {
-        if (betNums.length >= 1 && betNums[0] === drawNums[0]) {
-          return 2 * Number(bet.stake || 0);
-        }
+    /* ---------------- BIG DICE (1) ---------------- */
+    case 1: {
+      if (betType === "C1") {
+        const lines = betNums.map(n => [n]);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 5 * stakePer;
       }
-      return 0;
+      if (betType === "C2") {
+        const lines = combinations(betNums, 2);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 35 * stakePer;
+      }
+      if (betType === "C3") {
+        const lines = combinations(betNums, 3);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 300 * stakePer;
+      }
+      if (betType === "JACKPOT" && betNums.length === 5 && lineMatches(betNums, drawNums)) {
+        payout += 30000;
+      }
+      if (betType === "BONUS" && betNums.includes(bonusNum)) {
+        payout += 30 * stake;
+      }
+      break;
     }
 
-    /* ---------------------- PICK 3 ---------------------- */
-    case "pick3":
+    /* ---------------- BIG SIX (2) ---------------- */
+    case 2: {
+      if (betType === "C1") {
+        const lines = betNums.map(n => [n]);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 7 * stakePer;
+      }
+      if (betType === "C2") {
+        const lines = combinations(betNums, 2);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 50 * stakePer;
+      }
+      if (betType === "C3") {
+        const lines = combinations(betNums, 3);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 550 * stakePer;
+      }
+      if (betType === "JACKPOT" && betNums.length === 5 && lineMatches(betNums, drawNums)) {
+        payout += 30000;
+      }
+      if (betType === "BONUS" && betNums.includes(bonusNum)) {
+        payout += 42 * stake;
+      }
+      break;
+    }
+
+    /* ---------------- BIG MAX (3) ---------------- */
+    case 3: {
+      if (betType === "C1") {
+        const lines = betNums.map(n => [n]);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 7 * stakePer;
+      }
+      if (betType === "C2") {
+        const lines = combinations(betNums, 2);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 35 * stakePer;
+      }
+      if (betType === "C3") {
+        const lines = combinations(betNums, 3);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 200 * stakePer;
+      }
+      if (betType === "C4") {
+        const lines = combinations(betNums, 4);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 640 * stakePer;
+      }
+      if (betType === "JACKPOT" && betNums.length === 5 && lineMatches(betNums, drawNums)) {
+        payout += 30000;
+      }
+      if (betType === "BONUS" && betNums.includes(bonusNum)) {
+        payout += 42 * stake;
+      }
+      break;
+    }
+
+    /* ---------------- BIG FIVE (4) ---------------- */
+    case 4: {
+      if (betType === "C1") {
+        const lines = betNums.map(n => [n]);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 7 * stakePer;
+      }
+      if (betType === "C2") {
+        const lines = combinations(betNums, 2);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 70 * stakePer;
+      }
+      if (betType === "C3") {
+        const lines = combinations(betNums, 3);
+        const stakePer = stake / lines.length;
+        for (const l of lines) if (lineMatches(l, drawNums)) payout += 800 * stakePer;
+      }
+      if (betType === "JACKPOT" && betNums.length === 5 && lineMatches(betNums, drawNums)) {
+        payout += 30000;
+      }
+      break;
+    }
+
+    /* ---------------- PICK 2 (5) ---------------- */
+    case 5: {
+      if (betType === "STRAIGHT") {
+        if (betNums.length === 2 &&
+          betNums[0] === drawNums[0] &&
+          betNums[1] === drawNums[1]) {
+          payout += 50 * stake;
+        }
+      }
+      if (betType === "MATCH_FIRST") {
+        if (betNums[0] === drawNums[0]) {
+          payout += 2 * stake;
+        }
+      }
+      break;
+    }
+
+    /* ---------------- PICK 3 (6) ---------------- */
     case 6: {
       if (betType === "STRAIGHT") {
         if (betNums.length === 3 &&
-            betNums[0] === drawNums[0] &&
-            betNums[1] === drawNums[1] &&
-            betNums[2] === drawNums[2]) {
-          return 550 * Number(bet.stake || 0);
-        }
-      } else if (betType === "BOX") {
-        if (betNums.length === 3) {
-          const a = [...betNums].sort((x,y)=>x-y).join(",");
-          const b = [...drawNums].sort((x,y)=>x-y).join(",");
-          if (a === b) return 91 * Number(bet.stake || 0);
+          betNums[0] === drawNums[0] &&
+          betNums[1] === drawNums[1] &&
+          betNums[2] === drawNums[2]) {
+          payout += 550 * stake;
         }
       }
-      return 0;
-    }
-
-    /* -------------------- BIG DICE (1) ------------------- */
-    case 1: {
-      if (betType === "C1" && requireExact(1)) return 5 * Number(bet.stake || 0);
-      if (betType === "C2" && requireExact(2)) return 35 * Number(bet.stake || 0);
-      if (betType === "C3" && requireExact(3)) return 300 * Number(bet.stake || 0);
-      if (betType === "JACKPOT" && betNums.length === 5 && matches === 5) return 30000;
-      if (betType === "BONUS" && hasBonus) return 30 * Number(bet.stake || 0);
-      return 0;
-    }
-
-    /* -------------------- BIG SIX (2) -------------------- */
-    case 2: {
-      if (betType === "C1" && requireExact(1)) return 7 * Number(bet.stake || 0);
-      if (betType === "C2" && requireExact(2)) return 50 * Number(bet.stake || 0);
-      if (betType === "C3" && requireExact(3)) return 550 * Number(bet.stake || 0);
-      if (betType === "JACKPOT" && betNums.length === 5 && matches === 5) return 30000;
-      if (betType === "BONUS" && hasBonus) return 42 * Number(bet.stake || 0);
-      return 0;
-    }
-
-    /* -------------------- BIG MAX (3) -------------------- */
-    case 3: {
-      if (betType === "C1" && requireExact(1)) return 7 * Number(bet.stake || 0);
-      if (betType === "C2" && requireExact(2)) return 35 * Number(bet.stake || 0);
-      if (betType === "C3" && requireExact(3)) return 200 * Number(bet.stake || 0);
-      if (betType === "C4" && requireExact(4)) return 640 * Number(bet.stake || 0);
-      if (betType === "JACKPOT" && betNums.length === 5 && matches === 5) return 30000;
-      if (betType === "BONUS" && hasBonus) return 42 * Number(bet.stake || 0);
-      return 0;
-    }
-
-    /* ------------------- BIG FIVE (4) -------------------- */
-    case 4: {
-      if (betType === "C1" && requireExact(1)) return 7 * Number(bet.stake || 0);
-      if (betType === "C2" && requireExact(2)) return 70 * Number(bet.stake || 0);
-      if (betType === "C3" && requireExact(3)) return 800 * Number(bet.stake || 0);
-      if (betType === "JACKPOT" && betNums.length === 5 && matches === 5) return 30000;
-      return 0;
+      if (betType === "BOX") {
+        if (betNums.length === 3) {
+          const a = [...betNums].sort((x, y) => x - y).join(",");
+          const b = [...drawNums].sort((x, y) => x - y).join(",");
+          if (a === b) payout += 91 * stake;
+        }
+      }
+      break;
     }
 
     default:
-      return 0;
+      payout = 0;
   }
+
+  return payout;
 }
 
 module.exports = { calculatePayout };

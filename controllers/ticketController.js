@@ -49,33 +49,105 @@ exports.getTicket = async (req, res, next) => {
 exports.purchaseTicket = async (req, res, next) => {
   try {
     const { customer_id, store_id, game_id, draw_id, lines } = req.body;
-    // lines: [{bet_type, numbers, stake}]
-    if (!Array.isArray(lines) || !lines.length) return res.status(400).json({ message: "No lines" });
-    const total = lines.reduce((s, l) => s + Number(l.stake || 0), 0);
+    if (!Array.isArray(lines) || !lines.length) {
+      return res.status(400).json({ message: "No lines provided" });
+    }
+
+    // --- Calculate totals & validate limits ---
+    let total = 0;
+    let discountCredit = 0;
+
+    for (const l of lines) {
+      const stake = Number(l.stake || 0);
+      if (stake <= 0) return res.status(400).json({ message: "Invalid stake" });
+
+      // Max limits
+      if (["C3", "C2C3", "C4"].includes(l.bet_type) && stake > 300) {
+        return res.status(400).json({
+          message: `Bet limit exceeded for ${l.bet_type} (max $300)`
+        });
+      }
+
+      // Add to total
+      total += stake;
+
+      // Discounts (min $5 stake per line)
+      if (stake >= 5) {
+        if (l.bet_type === "C3") discountCredit += stake * 0.30;
+        else if (["C1", "C2", "BONUS"].includes(l.bet_type)) discountCredit += stake * 0.10;
+        else if (l.bet_type === "C4") discountCredit += stake * 0.10;
+      }
+    }
+
     const serial = genSerial();
+    const expiry_date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // +1 month
+
     const result = await tx(async (conn) => {
-      // balance check & deduction
-      const [[acc]] = await conn.query("SELECT balance FROM accounts WHERE customer_id = ?", [customer_id]);
+      // --- Check balance ---
+      const [[acc]] = await conn.query(
+        "SELECT balance FROM accounts WHERE customer_id = ?",
+        [customer_id]
+      );
       if (!acc || acc.balance < total) throw new Error("Insufficient balance");
-      await conn.query("UPDATE accounts SET balance = balance - ? WHERE customer_id = ?", [total, customer_id]);
-      // ticket
+
+      // Deduct balance
+      await conn.query(
+        "UPDATE accounts SET balance = balance - ? WHERE customer_id = ?",
+        [total, customer_id]
+      );
+
+      // --- Insert ticket ---
       const [ins] = await conn.query(
-        "INSERT INTO tickets (serial, customer_id, store_id, staff_id, game_id, draw_id, total_amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')",
-        [serial, customer_id, store_id || null, req.user.id || null, game_id, draw_id || null, total]
+        `INSERT INTO tickets 
+          (serial, customer_id, store_id, staff_id, game_id, draw_id, total_amount, status) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+        [
+          serial,
+          customer_id,
+          store_id || null,
+          req.user?.id || null,
+          game_id,
+          draw_id || null,
+          total
+        ]
       );
       const ticket_id = ins.insertId;
-      // lines
+
+      // --- Insert ticket lines ---
       for (const l of lines) {
         await conn.query(
-          "INSERT INTO ticket_lines (ticket_id, bet_type, numbers, stake, status) VALUES (?, ?, ?, ?, 'PENDING')",
+          `INSERT INTO ticket_lines (ticket_id, bet_type, numbers, stake, status) 
+           VALUES (?, ?, ?, ?, 'PENDING')`,
           [ticket_id, l.bet_type, String(l.numbers), Number(l.stake)]
         );
       }
-      return ticket_id;
+
+      // --- Insert discount credit (if any) ---
+      if (discountCredit > 0) {
+        await conn.query(
+          `INSERT INTO discount_credits 
+            (customer_id, game_id, ticket_id_source, amount_remaining, expires_at, created_at) 
+           VALUES (?, ?, ?, ?, ?, NOW())`,
+          [customer_id, game_id, ticket_id, discountCredit, expiry_date]
+        );
+      }
+
+      return { ticket_id, discountCredit };
     });
-    res.status(201).json({ message: "Ticket purchased", ticket_id: result, serial, total });
-  } catch (e) { next(e); }
+
+    res.status(201).json({
+      message: "Ticket purchased",
+      ticket_id: result.ticket_id,
+      serial,
+      total,
+      discount_credit: result.discountCredit,
+      expiry_date,
+    });
+  } catch (e) {
+    next(e);
+  }
 };
+
 
 exports.voidTicket = async (req, res, next) => {
   try {
