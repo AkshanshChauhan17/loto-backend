@@ -116,9 +116,9 @@ exports.purchaseTicket = async (req, res, next) => {
       // --- Insert ticket lines ---
       for (const l of lines) {
         await conn.query(
-          `INSERT INTO ticket_lines (ticket_id, bet_type, numbers, stake, status) 
-           VALUES (?, ?, ?, ?, 'PENDING')`,
-          [ticket_id, l.bet_type, String(l.numbers), Number(l.stake)]
+          `INSERT INTO ticket_lines (ticket_id, bet_type, numbers, stake, status, inner_type) 
+           VALUES (?, ?, ?, ?, 'PENDING', ?)`,
+          [ticket_id, l.bet_type, String(l.numbers), Number(l.stake), l.inner_type]
         );
       }
 

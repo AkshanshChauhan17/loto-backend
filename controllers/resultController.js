@@ -45,6 +45,7 @@ async function postResult(req, res) {
               bet_type: line.bet_type,
               numbers: line.numbers.split(",").map(n => Number(n.trim())).filter(Number.isFinite),
               stake: Number(line.stake),
+              inner_type: line.inner_type,
             },
             { winningNumbers, bonus }
           );

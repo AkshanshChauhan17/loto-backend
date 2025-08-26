@@ -41,6 +41,7 @@ function calculatePayout(game_id, bet, draw) {
   if (!drawNums.length || !betNums.length) return 0;
 
   const betType = String(bet.bet_type || "").toUpperCase();
+  const innerType = String(bet.inner_type || "").toUpperCase();
   const gid = isNaN(Number(game_id)) ? String(game_id).toLowerCase() : Number(game_id);
 
   const stake = Number(bet.stake || 0);
@@ -158,16 +159,19 @@ function calculatePayout(game_id, bet, draw) {
 
     /* ---------------- PICK 2 (5) ---------------- */
     case 5: {
-      if (betType === "STRAIGHT") {
+      console.error(innerType, betNums, stake, drawNums)
+      if (innerType === "STRAIGHT") {
         if (betNums.length === 2 &&
           betNums[0] === drawNums[0] &&
           betNums[1] === drawNums[1]) {
           payout += 50 * stake;
+          console.log("RN 1")
         }
       }
-      if (betType === "MATCH_FIRST") {
+      if (innerType === "MATCH_FIRST") {
         if (betNums[0] === drawNums[0]) {
           payout += 2 * stake;
+          console.log("RN 2")
         }
       }
       break;
@@ -175,7 +179,7 @@ function calculatePayout(game_id, bet, draw) {
 
     /* ---------------- PICK 3 (6) ---------------- */
     case 6: {
-      if (betType === "STRAIGHT") {
+      if (innerType === "STRAIGHT") {
         if (betNums.length === 3 &&
           betNums[0] === drawNums[0] &&
           betNums[1] === drawNums[1] &&
@@ -183,7 +187,7 @@ function calculatePayout(game_id, bet, draw) {
           payout += 550 * stake;
         }
       }
-      if (betType === "BOX") {
+      if (innerType === "BOX") {
         if (betNums.length === 3) {
           const a = [...betNums].sort((x, y) => x - y).join(",");
           const b = [...drawNums].sort((x, y) => x - y).join(",");
