@@ -5,7 +5,7 @@ exports.searchCustomers = async (req, res, next) => {
     const q = (req.query.q || "").trim();
     const sql = q ? `WHERE name LIKE ? OR phone LIKE ? OR id = ?` : "";
     const params = q ? [`%${q}%`, `%${q}%`, Number(q) || 0] : [];
-    const rows = await withDb(conn => conn.query(`SELECT * FROM customers ${sql} LIMIT 50`, params).then(([r])=>r));
+    const rows = await withDb(conn => conn.query(`SELECT * FROM customers ${sql} JOIN accounts WHERE customers.id = accounts.customer_id LIMIT 50`, params).then(([r])=>r));
     res.json(rows);
   } catch (e) { next(e); }
 };
