@@ -10,5 +10,6 @@ router.post("/:id/void", auth(), ctrl.voidTicket);
 router.post("/:id/exchange", auth(), ctrl.exchangeTicket);
 router.post("/:id/reprint", auth(), ctrl.reprintTicket);
 router.get("/:id/status", auth(), ctrl.ticketStatus);
+router.get("/:id/bonus", auth(), ctrl.getBonusAmount);
 
 module.exports = router;

@@ -5,7 +5,7 @@ exports.searchCustomers = async (req, res, next) => {
     const q = (req.query.q || "").trim();
     const sql = q ? `WHERE name LIKE ? OR phone LIKE ? OR id = ?` : "";
     const params = q ? [`%${q}%`, `%${q}%`, Number(q) || 0] : [];
-    const rows = await withDb(conn => conn.query(`SELECT * FROM customers ${sql} JOIN accounts WHERE customers.id = accounts.customer_id LIMIT 50`, params).then(([r])=>r));
+    const rows = await withDb(conn => conn.query(`SELECT * FROM customers ${sql} JOIN accounts WHERE customers.id = accounts.customer_id LIMIT 50`, params).then(([r]) => r));
     res.json(rows);
   } catch (e) { next(e); }
 };
@@ -13,11 +13,40 @@ exports.searchCustomers = async (req, res, next) => {
 exports.getCustomer = async (req, res, next) => {
   try {
     const id = req.params.id;
-    const [cust] = await withDb(conn => conn.query("SELECT id, name, phone, created_at FROM customers WHERE id = ?", [id]).then(([r])=>r));
+
+    // Get basic customer info
+    const [cust] = await withDb(conn =>
+      conn
+        .query("SELECT id, name, phone, created_at FROM customers WHERE id = ?", [id])
+        .then(([r]) => r)
+    );
     if (!cust) return res.status(404).json({ message: "Not found" });
-    const [bal] = await withDb(conn => conn.query("SELECT balance FROM accounts WHERE customer_id = ?", [id]).then(([r])=>r));
-    res.json({ ...cust, balance: bal ? bal.balance : 0 });
-  } catch (e) { next(e); }
+
+    // Get account balance
+    const [bal] = await withDb(conn =>
+      conn
+        .query("SELECT balance FROM accounts WHERE customer_id = ?", [id])
+        .then(([r]) => r)
+    );
+
+    // Get total bonus amount
+    const [bonus] = await withDb(conn =>
+      conn
+        .query(
+          "SELECT SUM(amount_remaining) AS total_bonus FROM discount_credits WHERE customer_id = ?",
+          [id]
+        )
+        .then(([r]) => r)
+    );
+
+    res.json({
+      ...cust,
+      balance: bal ? bal.balance : 0,
+      bonus_amount: bonus?.total_bonus || 0
+    });
+  } catch (e) {
+    next(e);
+  }
 };
 
 exports.topUpCustomer = async (req, res, next) => {
@@ -50,7 +79,7 @@ exports.getTopups = async (req, res, next) => {
     const rows = await withDb(conn => conn.query(
       "SELECT id, amount, method, receipt_id, created_at FROM topups WHERE customer_id = ? ORDER BY id DESC LIMIT 200",
       [id]
-    ).then(([r])=>r));
+    ).then(([r]) => r));
     res.json(rows);
   } catch (e) { next(e); }
 };
@@ -61,7 +90,7 @@ exports.getCustomerTickets = async (req, res, next) => {
     const rows = await withDb(conn => conn.query(
       "SELECT id, serial, game_id, total_amount, status, purchase_time FROM tickets WHERE customer_id = ? ORDER BY id DESC LIMIT 200",
       [id]
-    ).then(([r])=>r));
+    ).then(([r]) => r));
     res.json(rows);
   } catch (e) { next(e); }
 };
