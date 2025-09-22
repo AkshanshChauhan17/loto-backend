@@ -81,7 +81,7 @@ exports.purchaseTicket = async (req, res, next) => {
     // --- Process each line ---
     for (const l of lines) {
       let stake = Number(l.stake || 0);
-      if (stake < 1) return res.status(400).json({ message: "Invalid stake" });
+      if (stake < 1 && !l.bonus) return res.status(400).json({ message: "Invalid stake" });
 
       // BONUS special rule
       if (l.bet_type === "BONUS" && l.numbers?.length) {
@@ -147,43 +147,6 @@ exports.purchaseTicket = async (req, res, next) => {
         );
       }
 
-      // --- Deduct bonus balance (consume credits FIFO) ---
-      if (bonusTotal > 0) {
-        const [[bonusRow]] = await conn.query(
-          "SELECT SUM(amount_remaining) AS total_bonus FROM discount_credits WHERE customer_id = ?",
-          [customer_id]
-        );
-        const totalBonus = bonusRow?.total_bonus || 0;
-        if (totalBonus < bonusTotal) {
-          throw new Error("Insufficient bonus credits");
-        }
-
-        let remaining = bonusTotal;
-        const [rows] = await conn.query(
-          "SELECT id, amount_remaining FROM discount_credits WHERE customer_id = ? ORDER BY created_at ASC",
-          [customer_id]
-        );
-
-        for (const r of rows) {
-          if (remaining <= 0) break;
-
-          if (r.amount_remaining <= remaining) {
-            // consume whole row
-            await conn.query("DELETE FROM discount_credits WHERE id = ?", [
-              r.id,
-            ]);
-            remaining -= r.amount_remaining;
-          } else {
-            // partially consume
-            await conn.query(
-              "UPDATE discount_credits SET amount_remaining = amount_remaining - ? WHERE id = ?",
-              [remaining, r.id]
-            );
-            remaining = 0;
-          }
-        }
-      }
-
       // --- Insert ticket ---
       const [ins] = await conn.query(
         `INSERT INTO tickets 
@@ -204,8 +167,8 @@ exports.purchaseTicket = async (req, res, next) => {
       // --- Insert lines ---
       for (const l of processedLines) {
         await conn.query(
-          `INSERT INTO ticket_lines (ticket_id, bet_type, numbers, stake, status, inner_type, is_bonus) 
-           VALUES (?, ?, ?, ?, 'PENDING', ?, ?)`,
+          `INSERT INTO ticket_lines (ticket_id, bet_type, numbers, stake, status, inner_type, is_bonus, free_play, bonus_amount, add_to_win) 
+           VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
           [
             ticket_id,
             l.bet_type,
@@ -213,17 +176,10 @@ exports.purchaseTicket = async (req, res, next) => {
             Number(l.stake),
             l.inner_type,
             l.bonus ? 1 : 0,
+            l.freePlay,
+            l.discount,
+            l.addToWin
           ]
-        );
-      }
-
-      // --- Insert discount credits (only for normal) ---
-      if (normalTotal > 0 && discountCredit > 0) {
-        await conn.query(
-          `INSERT INTO discount_credits 
-            (customer_id, game_id, ticket_id_source, amount_remaining, expires_at, created_at) 
-           VALUES (?, ?, ?, ?, ?, NOW())`,
-          [customer_id, game_id, ticket_id, discountCredit, expiry_date]
         );
       }
 
