@@ -81,71 +81,102 @@ exports.purchaseTicket = async(req, res, next) => {
 
         // --- Process each line ---
         for (const l of lines) {
+            // Normalize incoming values
+            const betType = String(l.bet_type || "").toUpperCase();
+            const isBonusFlag = Boolean(l.bonus); // frontend boolean indicating a 'true' bonus
             let stake = Number(l.stake || 0);
-            if (stake < 1 && !l.bonus)
-                return res.status(400).json({ message: "Invalid stake" });
+            const numbers = Array.isArray(l.numbers) ? l.numbers : [];
 
-            // --- BONUS lines come directly from frontend ---
-            if (l.bet_type === "BONUS") {
-                // use stake and discount from frontend
-                bonusTotal += stake;
-                processedLines.push({
-                    ...l,
-                    stake,
-                    discount: Number(l.discount || 0),
-                    freePlay: false,
-                    addToWin: 0
-                });
-                continue; // skip rest of the logic for BONUS
+            // Basic validation: stake must be >=1 for non-bonus lines
+            if (stake < 1 && !isBonusFlag) {
+                return res.status(400).json({ message: "Invalid stake" });
             }
 
-            // --- Normal line processing (non-BONUS) ---
-            // Max limits
-            if (["C3", "C2C3", "C4"].includes(l.bet_type) && stake > 300) {
+            // CASE A: Real BONUS line (frontend explicitly marks bonus: true)
+            if (betType === "BONUS" && isBonusFlag) {
+                // If frontend sent a stake, use it; otherwise derive from numbers as legacy fallback
+                if (!stake || stake < 0) {
+                    const lineCount = numbers.length === 2 ? 2 : numbers.length === 10 ? 10 : 1;
+                    stake = lineCount * 1; // $1 per line fallback
+                }
+
+                // Treat this as bonus (not deducted from normal account; counted in bonusTotal)
+                bonusTotal += stake;
+
+                processedLines.push({
+                    ...l,
+                    bet_type: betType,
+                    stake,
+                    discount: Number(l.discount || 0),
+                    freePlay: Boolean(l.freePlay) || false,
+                    addToWin: Number(l.addToWin || 0),
+                });
+
+                // skip normal processing
+                continue;
+            }
+
+            // CASE B: Non-bonus or bet_type === "BONUS" but bonus flag is false
+            // We'll treat it as a normal wager (subject to same validation/rounding/discount rules)
+
+            // Max limits for certain bet types
+            if (["C3", "C2C3", "C4"].includes(betType) && stake > 300) {
                 return res
                     .status(400)
-                    .json({ message: `Bet limit exceeded for ${l.bet_type} (max $300)` });
+                    .json({ message: `Bet limit exceeded for ${betType} (max $300)` });
             }
 
             // Multi-line rounding (non-bonus only)
-            if (lines.length > 1 && l.bet_type !== "BONUS") {
+            if (lines.length > 1) {
+                // original intention: round up to nearest 0.5, extra safeguard
                 stake = Math.ceil(stake * 2) / 2;
-                if ((stake * 2) % 2 !== 0) stake += 0.5;
+                // the extra if in your original code looked suspicious; keep consistent rounding
             }
 
+            // accumulate as normal
             normalTotal += stake;
 
-            // --- Discounts only for non-bonus lines ---
+            // Discounts only for non-bonus lines and only if stake >= 5
             if (stake >= 5) {
-                switch (l.bet_type) {
+                switch (betType) {
                     case "C3":
-                        discountCredit += stake * 0.2; // 20% free play
+                        discountCredit += stake * 0.20; // 20%
                         break;
                     case "C1":
                     case "C2":
                     case "C4":
-                        discountCredit += stake * 0.1; // 10% free play
+                    case "BONUS": // NOTE: when a 'BONUS' line sent with bonus:false, treat like normal and give 10%
+                        discountCredit += stake * 0.10;
+                        break;
+                    default:
+                        // others: no discount
                         break;
                 }
             }
 
             processedLines.push({
                 ...l,
+                bet_type: betType,
                 stake,
                 discount: Number(l.discount || 0),
-                freePlay: false,
-                addToWin: 0
+                freePlay: Boolean(l.freePlay) || false,
+                addToWin: Number(l.addToWin || 0),
             });
-        }
+        } // end for lines
 
         // --- Calculate totals ---
-        const grandTotal = normalTotal + bonusTotal;
+        // Round totals to 2 decimals to avoid float errors
+        normalTotal = Number(normalTotal.toFixed(2));
+        bonusTotal = Number(bonusTotal.toFixed(2));
+        discountCredit = Number(discountCredit.toFixed(2));
+
+        const grandTotal = Number((normalTotal + bonusTotal).toFixed(2));
         const serial = genSerial();
         const expiry_date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
         // --- Database Transaction ---
         const result = await tx(async(conn) => {
-            // --- Deduct normal balance ---
+            // --- Deduct normal balance only (bonusTotal treated separately) ---
             if (normalTotal > 0) {
                 const [
                     [acc]
@@ -153,8 +184,7 @@ exports.purchaseTicket = async(req, res, next) => {
                     "SELECT balance FROM accounts WHERE customer_id = ?", [customer_id]
                 );
 
-                if (!acc || acc.balance < normalTotal)
-                    throw new Error("Insufficient balance");
+                if (!acc || acc.balance < normalTotal) throw new Error("Insufficient balance");
 
                 await conn.query(
                     "UPDATE accounts SET balance = balance - ? WHERE customer_id = ?", [normalTotal, customer_id]
@@ -172,7 +202,7 @@ exports.purchaseTicket = async(req, res, next) => {
                     req.user ? .id || null,
                     game_id,
                     draw_id || null,
-                    grandTotal
+                    grandTotal,
                 ]
             );
             const ticket_id = ins.insertId;
@@ -194,16 +224,21 @@ exports.purchaseTicket = async(req, res, next) => {
           ) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`, [
                         ticket_id,
                         l.bet_type,
-                        String(l.numbers),
+                        String(l.numbers || ""),
                         Number(l.stake),
                         l.inner_type || null,
-                        l.bet_type === "BONUS" ? 1 : 0,
-                        l.freePlay || false,
-                        l.discount || 0,
-                        l.addToWin || 0
+                        // is_bonus should reflect whether frontend flagged it as a real bonus
+                        (l.bet_type === "BONUS" && Boolean(l.bonus)) ? 1 : 0,
+                        l.freePlay ? 1 : 0,
+                        Number(l.discount || 0),
+                        Number(l.addToWin || 0),
                     ]
                 );
             }
+
+            // Optionally credit discount/free-play to customer's account or store credit here:
+            // e.g. if you want to persist discountCredit as free play:
+            // if(discountCredit > 0) await conn.query("UPDATE accounts SET free_play = free_play + ? WHERE customer_id = ?", [discountCredit, customer_id]);
 
             return { ticket_id, discountCredit, normalTotal, bonusTotal };
         });
@@ -216,7 +251,7 @@ exports.purchaseTicket = async(req, res, next) => {
             normal_total: result.normalTotal,
             bonus_total: result.bonusTotal,
             discount_credit: result.discountCredit,
-            expiry_date
+            expiry_date,
         });
     } catch (e) {
         next(e);
