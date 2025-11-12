@@ -199,7 +199,7 @@ exports.purchaseTicket = async(req, res, next) => {
                     serial,
                     customer_id,
                     store_id || null,
-                    req.user ? .id || null,
+                    req.user?.id || null,
                     game_id,
                     draw_id || null,
                     grandTotal,
