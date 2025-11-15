@@ -7,30 +7,52 @@ function genSerial() {
 exports.listTickets = async(req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = parseInt(req.query.limit) || 5;
         const offset = (page - 1) * limit;
-        const status = req.query.status;
 
-        let query = `
-      SELECT id, serial, customer_id, game_id, total_amount, status, purchase_time 
-      FROM tickets
-    `;
+        const status = req.query.status || null;
+        const gameId = req.query.game_id ? Number(req.query.game_id) : null;
+        const search = req.query.search || null;
 
+        const sortBy = req.query.sortBy || "id";
+        const sortOrder = (req.query.sortOrder || "DESC").toUpperCase();
+
+        let whereClauses = [];
         let params = [];
 
-        if (status) {
-            query += " WHERE status = ?";
+        if (status && status !== "all") {
+            whereClauses.push("status = ?");
             params.push(status);
         }
 
-        query += " ORDER BY id DESC LIMIT ? OFFSET ?";
-        params.push(limit, offset);
+        if (gameId !== null && !isNaN(gameId)) {
+            whereClauses.push("game_id = ?");
+            params.push(gameId);
+        }
+
+        if (search) {
+            whereClauses.push("serial LIKE ?");
+            params.push(`%${search}%`);
+        }
+
+        const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
+
+        const query = `
+      SELECT id, serial, customer_id, game_id, total_amount, status, purchase_time
+      FROM tickets
+      ${whereSQL}
+      ORDER BY ${sortBy} ${sortOrder}
+      LIMIT ? OFFSET ?
+    `;
+
+        const finalParams = [...params, limit, offset];
 
         const rows = await withDb(conn =>
-            conn.query(query, params).then(([r]) => r)
+            conn.query(query, finalParams).then(([data]) => data)
         );
 
         res.json(rows);
+
     } catch (e) {
         next(e);
     }
